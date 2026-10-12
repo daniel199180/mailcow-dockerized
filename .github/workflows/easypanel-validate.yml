@@ -44,6 +44,12 @@ jobs:
           ports=sorted(str(port['published']) for service in services.values() for port in service.get('ports',[]))
           assert ports == ['25','465','587','993'], ports
           assert 'netfilter-mailcow' not in services
+          nginx_networks=services['nginx-mailcow']['networks']
+          assert {'mailcow-network','easypanel'} <= set(nginx_networks), nginx_networks
+          assert config['networks']['easypanel']['external'] is True
+          for name, service in services.items():
+              if name != 'nginx-mailcow':
+                  assert 'easypanel' not in service.get('networks',{}), name
           assert config['networks']['mailcow-network']['ipam']['config'][0]['subnet'] == '172.30.50.0/24'
           for name, service in services.items():
               for mount in service.get('volumes',[]):

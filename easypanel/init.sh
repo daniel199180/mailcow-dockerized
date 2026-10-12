@@ -44,7 +44,7 @@ if [ ! -s "$dh_target" ]; then
 fi
 if [ ! -e "$ssl_dir/cert.pem" ] && [ ! -e "$ssl_dir/key.pem" ]; then
   openssl req -x509 -newkey rsa:2048 -nodes -days 7 \
-    -subj "/CN=$MAILCOW_HOSTNAME" \
+    -subj "/O=mailcow/CN=$MAILCOW_HOSTNAME" \
     -addext "subjectAltName=DNS:$MAILCOW_HOSTNAME" \
     -keyout "$ssl_dir/key.pem" -out "$ssl_dir/cert.pem" >/dev/null 2>&1
   chmod 0600 "$ssl_dir/key.pem"

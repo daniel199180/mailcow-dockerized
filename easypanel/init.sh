@@ -26,6 +26,22 @@ chmod 0755 "$data_dir/web/.well-known" "$data_dir/web/.well-known/acme-challenge
 ssl_dir=$data_dir/assets/ssl
 mkdir -p "$ssl_dir"
 chmod 0755 "$ssl_dir"
+# Dovecot requires a DH parameter file in the same persistent SSL directory.
+# Seed it only when missing; never replace an existing Mailcow-generated file.
+dh_source="$data_dir/assets/ssl-example/dhparams.pem"
+dh_target="$ssl_dir/dhparams.pem"
+if [ ! -e "$dh_target" ]; then
+  if [ ! -s "$dh_source" ]; then
+    echo 'Missing Mailcow bundled dhparams.pem; refusing to start.' >&2
+    exit 1
+  fi
+  cp "$dh_source" "$dh_target"
+  chmod 0644 "$dh_target"
+fi
+if [ ! -s "$dh_target" ]; then
+  echo 'Empty dhparams.pem in persistent SSL directory.' >&2
+  exit 1
+fi
 if [ ! -e "$ssl_dir/cert.pem" ] && [ ! -e "$ssl_dir/key.pem" ]; then
   openssl req -x509 -newkey rsa:2048 -nodes -days 7 \
     -subj "/CN=$MAILCOW_HOSTNAME" \

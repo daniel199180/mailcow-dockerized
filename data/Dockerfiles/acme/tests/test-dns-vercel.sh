@@ -24,13 +24,19 @@ _mock() {
   printf '%s|%s|%s\n' "$method" "$url" "$body" >> "$LOG"
   status=200
   case "$url" in
-    */v4/domains/ya.com.bo?teamId=*)
-      if [ "$SCENARIO" = forbidden ]; then
-        status=403
-        result='{"error":{"code":"forbidden"}}'
-      else
-        result='{"name":"ya.com.bo"}'
-      fi
+    */v5/domains/ya.com.bo?teamId=*)
+      case "$SCENARIO" in
+        forbidden) status=403; result='{"error":{"code":"forbidden"}}' ;;
+        not_found) status=404; result='{"error":{"code":"not_found"}}' ;;
+        domain_error) result='{"error":{"code":"invalid_domain"}}' ;;
+        domain_invalid_json) result='{"domain":' ;;
+        domain_wrong_name) result='{"domain":{"name":"tiendaya.com.bo","teamId":"team_Example12345678"}}' ;;
+        domain_wrong_team) result='{"domain":{"name":"ya.com.bo","teamId":"team_Other12345678"}}' ;;
+        domain_null_team) result='{"domain":{"name":"ya.com.bo","teamId":null}}' ;;
+        domain_legacy) result='{"name":"ya.com.bo"}' ;;
+        domain_no_team) result='{"domain":{"name":"ya.com.bo"}}' ;;
+        *) result='{"domain":{"name":"ya.com.bo","teamId":"team_Example12345678"}}' ;;
+      esac
       ;;
     */v2/domains/ya.com.bo/records?teamId=*)
       case "$SCENARIO" in
@@ -40,7 +46,7 @@ _mock() {
       ;;
     */v5/domains/ya.com.bo/records?limit=100*teamId=*)
       case "$SCENARIO" in
-        exact|delete_error)
+        exact|domain_no_team|delete_error)
           result='{"records":[{"id":"rec_root","name":"","type":"TXT","value":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},{"id":"rec_wildcard","name":"*","type":"TXT","value":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},{"id":"rec_store","name":"costura","type":"TXT","value":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},{"id":"rec_mail","name":"notificaciones","type":"A","value":"94.72.119.78"},{"id":"rec_spf","name":"","type":"TXT","value":"v=spf1 include:example.invalid ~all"},{"id":"rec_target","name":"_acme-challenge.notificaciones","type":"TXT","value":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},{"id":"rec_old","name":"_acme-challenge.notificaciones","type":"TXT","value":"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}],"pagination":{"count":7,"next":null}}'
           ;;
         absent) result='{"records":[{"id":"rec_other","name":"_acme-challenge.notificaciones","type":"TXT","value":"BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}],"pagination":{"count":1,"next":null}}' ;;
@@ -82,7 +88,7 @@ must_fail() { if "$@"; then printf 'expected failure: %s\n' "$*" >&2; exit 1; fi
 assert_scoped_requests() {
   while IFS='|' read -r method url body; do
     case "$method $url" in
-      'GET https://api.vercel.com/v4/domains/ya.com.bo?teamId=team_Example12345678'|\
+      'GET https://api.vercel.com/v5/domains/ya.com.bo?teamId=team_Example12345678'|\
       'GET https://api.vercel.com/v5/domains/ya.com.bo/records?limit=100&teamId=team_Example12345678'|\
       'GET https://api.vercel.com/v5/domains/ya.com.bo/records?limit=100&until=123&teamId=team_Example12345678'|\
       'POST https://api.vercel.com/v2/domains/ya.com.bo/records?teamId=team_Example12345678'|\
@@ -108,7 +114,17 @@ post_body=$(sed -n 's/^POST|[^|]*|//p' "$LOG")
 printf '%s' "$post_body" | jq -e --arg value "$VALUE" '.name == "_acme-challenge.notificaciones" and .type == "TXT" and .value == $value' >/dev/null
 assert_scoped_requests
 
+reset_case domain_no_team
+dns_vercel_add "$DOMAIN" "$VALUE"
+test "$(grep -c '^POST|' "$LOG")" = 1
+assert_scoped_requests
+
 reset_case exact
+dns_vercel_rm "$DOMAIN" "$VALUE"
+assert_delete_target
+assert_scoped_requests
+
+reset_case domain_no_team
 dns_vercel_rm "$DOMAIN" "$VALUE"
 assert_delete_target
 assert_scoped_requests
@@ -133,6 +149,18 @@ done
 reset_case forbidden
 must_fail dns_vercel_add "$DOMAIN" "$VALUE"
 test "$(grep -c '^POST|' "$LOG" || true)" = 0
+
+for scenario in forbidden not_found domain_error domain_invalid_json domain_wrong_name domain_wrong_team domain_null_team domain_legacy; do
+  reset_case "$scenario"
+  must_fail dns_vercel_add "$DOMAIN" "$VALUE"
+  must_fail dns_vercel_rm "$DOMAIN" "$VALUE"
+  test "$(wc -l < "$LOG" | tr -d ' ')" = 2
+  if grep -Eq '^(POST|DELETE)\|' "$LOG"; then
+    printf 'domain failure led to a DNS write: %s\n' "$scenario" >&2
+    exit 1
+  fi
+  assert_scoped_requests
+done
 
 reset_case bad_add
 must_fail dns_vercel_add "$DOMAIN" "$VALUE"

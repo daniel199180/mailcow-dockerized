@@ -145,10 +145,12 @@ _get_root() {
   if [ "$1" != "$_VERCEL_CHALLENGE" ]; then
     return 1
   fi
-  if ! _vercel_rest GET "v4/domains/$_VERCEL_ZONE"; then
+  if ! _vercel_rest GET "v5/domains/$_VERCEL_ZONE"; then
     return 1
   fi
-  if ! printf '%s' "$response" | jq -e --arg zone "$_VERCEL_ZONE" '.name == $zone' >/dev/null; then
+  if ! printf '%s' "$response" | jq -e --arg zone "$_VERCEL_ZONE" \
+    --arg team "$VERCEL_TEAM_ID" \
+    '.domain | objects | select(.name == $zone and ((has("teamId") | not) or .teamId == $team))' >/dev/null; then
     return 1
   fi
   _domain="$_VERCEL_ZONE"

@@ -32,10 +32,16 @@ jobs:
         run: |
           docker build -t mailcow-init-check -f easypanel/Dockerfile .
           docker build -t mailcow-acme-check data/Dockerfiles/acme
+      - name: Verify Mailcow PHP-FPM account
+        run: |
+          test "$(docker run --rm --entrypoint id ghcr.io/mailcow/phpfpm:8.2.29-3 -u www-data)" = 82
+          test "$(docker run --rm --entrypoint id ghcr.io/mailcow/phpfpm:8.2.29-3 -g www-data)" = 82
       - name: Verify persistent seed and published ports
         run: |
           mkdir -p "$MAILCOW_DATA_PATH"
           docker run --rm -e MAILCOW_HOSTNAME -v "$MAILCOW_DATA_PATH:/mailcow-data" mailcow-init-check
+          test "$(stat -c '%u:%g' "$MAILCOW_DATA_PATH/web/templates/cache")" = 82:82
+          docker run --rm -v "$MAILCOW_DATA_PATH:/mailcow-data" --entrypoint sh mailcow-init-check -c 'printf "preserve me\n" > /mailcow-data/web/templates/cache/existing.twig; printf "untouched\n" > /mailcow-data/web/templates/unrelated.keep; chown 0:0 /mailcow-data/web/templates/cache /mailcow-data/web/templates/cache/existing.twig /mailcow-data/web/templates/unrelated.keep'
           docker run --rm -e MAILCOW_HOSTNAME -v "$MAILCOW_DATA_PATH:/mailcow-data" mailcow-init-check
           python3 - <<'PY'
           import json, os, pathlib, subprocess
@@ -55,5 +61,15 @@ jobs:
               for mount in service.get('volumes',[]):
                   if mount['type'] == 'bind' and mount['source'].startswith(os.environ['MAILCOW_DATA_PATH']):
                       assert pathlib.Path(mount['source']).exists(), (name, mount['source'])
+          twig_cache=pathlib.Path(os.environ['MAILCOW_DATA_PATH'],'web/templates/cache')
+          existing=twig_cache/'existing.twig'
+          assert twig_cache.is_dir()
+          assert (twig_cache.stat().st_uid,twig_cache.stat().st_gid) == (82,82)
+          assert (existing.stat().st_uid,existing.stat().st_gid) == (82,82)
+          assert existing.read_text() == 'preserve me\n'
+          assert twig_cache.stat().st_mode & 0o777 == 0o755
+          unrelated=twig_cache.parent/'unrelated.keep'
+          assert (unrelated.stat().st_uid,unrelated.stat().st_gid) == (0,0)
+          assert unrelated.read_text() == 'untouched\n'
           assert pathlib.Path(os.environ['MAILCOW_DATA_PATH'],'assets/ssl/key.pem').stat().st_mode & 0o777 == 0o600
           PY

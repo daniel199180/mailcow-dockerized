@@ -1,10 +1,10 @@
 # DNS de Vercel para Mailcow (notificaciones.ya.com.bo)
 
-> Documentación de preparación; no desplegar todavía. No contiene secretos.
+> Guía de preparación; no contiene secretos ni implica un despliegue.
 
 ## Confirmar que Vercel es DNS autoritativo
 
-Que la web esté en Vercel no garantiza que su DNS esté allí. Comprobar en Vercel > Domains > ya.com.bo que figuren los registros DNS. Alternativamente, `dig +short NS ya.com.bo`; los nameservers oficiales de Vercel son `ns1.vercel-dns.com` y `ns2.vercel-dns.com`.
+Que la web esté en Vercel no garantiza que su DNS esté allí. El 11 de octubre de 2026, `dig +short NS ya.com.bo` devolvió `ns1.vercel-dns.com` y `ns2.vercel-dns.com`. Volver a comprobarlo antes del despliegue.
 
 ## Registro A (panel Mailcow en VPS Contabo)
 
@@ -16,28 +16,27 @@ En Vercel > Domains > ya.com.bo > DNS Records:
 
 No borrar MX ni TXT existentes del dominio. No agregar MX del dominio raíz hasta tener decidido el dominio remitente y la recepción de mensajes. El registro A solo resuelve el subdominio, no habilita automáticamente SMTP ni certificados.
 
-Comprobar propagación: `dig +short A notificaciones.ya.com.bo` debería devolver `94.72.119.78`.
+El 11 de octubre de 2026, `dig +short A notificaciones.ya.com.bo` devolvió `94.72.119.78`; volver a comprobarlo antes del despliegue.
 
 ## Certificados SMTP/IMAP por DNS-01 usando Vercel
 
-Mailcow soporta DNS-01 mediante acme.sh, y acme.sh dispone del plugin `dns_vercel`. Variables de referencia para `mailcow.conf` o el entorno de EasyPanel:
+Mailcow soporta DNS-01 mediante acme.sh, y acme.sh dispone del plugin `dns_vercel`. En `easypanel-compose.yml` las opciones DNS-01 ya están fijadas. Añadir al entorno privado de EasyPanel:
 
 ```dotenv
 MAILCOW_HOSTNAME=notificaciones.ya.com.bo
-ACME_DNS_CHALLENGE=y
-ACME_DNS_PROVIDER=dns_vercel
 ACME_ACCOUNT_EMAIL=REEMPLAZAR_CON_CORREO_DE_CONTACTO
-ONLY_MAILCOW_HOSTNAME=y
-AUTODISCOVER_SAN=n
+VERCEL_TOKEN=REEMPLAZAR_TOKEN_PRIVADO
 ```
 
-El plugin acme.sh usa `VERCEL_TOKEN`. **NO** subir el token a Git, ni escribirlo en un archivo público. El plugin de Mailcow carga `data/conf/acme/dns-01.conf` (archivo local protegido) con el token. Hay que confirmar que la cuenta/alcance del token tenga acceso a la zona. El plugin puede tener limitaciones con dominios propiedad de Teams: validar la solicitud real antes de confiar en la renovación automática.
+El token se entrega solo al contenedor `acme-mailcow` como variable de entorno de EasyPanel. **No** subirlo a Git ni escribirlo en un archivo público. Confirmar que la cuenta y alcance del token permiten crear y eliminar TXT en `ya.com.bo`. acme.sh puede persistir credenciales en el volumen de certificados; proteger su copia de seguridad. Si el dominio pertenece a un Team de Vercel, comprobar una emisión real antes de confiar en la renovación automática.
 
-Configurar `ACME_DNS_CHALLENGE=y` no sustituye la preparación previa de volúmenes, certificados temporales, `mailcow.conf`, ni la integración Traefik. **No desplegar** el Compose oficial sin estas etapas.
+El inicializador del Compose de EasyPanel prepara los archivos y un certificado temporal. La emisión real debe verificarse después de un despliegue autorizado. No desplegar el Compose oficial de Mailcow en este VPS porque publicaría 80/443.
 
 ## DNS para envíos y recepción
 
 Para enviar correo, configurar SPF, DKIM y DMARC en el **dominio exacto del remitente**. El hostname del servidor no siempre coincide con el dominio del correo (ejemplo: `no-reply@ya.com.bo` frente a `no-reply@notificaciones.ya.com.bo`). El registro MX es necesario para recibir mensajes en un dominio concreto; no reemplazar registros MX existentes de `ya.com.bo` sin planificar una migración.
+
+El PTR/rDNS de `94.72.119.78` devolvió `vmi2704252.contaboserver.net` el 11 de octubre de 2026. Solicitar en Contabo que apunte a `notificaciones.ya.com.bo` y verificar la resolución directa e inversa antes de usar el servidor para entregas externas.
 
 ## Referencias
 - [Vercel DNS records](https://vercel.com/docs/domains/managing-dns-records)

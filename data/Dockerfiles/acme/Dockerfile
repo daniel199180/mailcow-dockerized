@@ -17,7 +17,8 @@ RUN apk upgrade --no-cache \
   acme-tiny \
   git \
   socat \
-  && git clone --depth 1 https://github.com/acmesh-official/acme.sh.git /opt/acme.sh \
+  && git clone --depth 1 --branch 3.1.6 https://github.com/acmesh-official/acme.sh.git /opt/acme.sh \
+  && test "$(git -C /opt/acme.sh rev-parse HEAD)" = 807da6498377ee5e0cf43a78091f46f12dc59a89 \
   && chmod +x /opt/acme.sh/acme.sh \
   && mkdir -p /var/lib/acme/acme-sh
 

@@ -1,0 +1,53 @@
+name: Validate EasyPanel Compose
+
+on:
+  push:
+    branches: [easypanel-contabo]
+  pull_request:
+    branches: [master]
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    env:
+      COMPOSE_PROJECT_NAME: mailtiendaya
+      MAILCOW_HOSTNAME: notificaciones.ya.com.bo
+      MAILCOW_DATA_PATH: /tmp/mailcow-easypanel-check
+      TZ: America/La_Paz
+      DBNAME: mailcow
+      DBUSER: mailcow
+      DBPASS: validation-only-dbpass
+      DBROOT: validation-only-dbroot
+      REDISPASS: validation-only-redispass
+      SOGO_URL_ENCRYPTION_KEY: validation-only-sogo
+      ACME_ACCOUNT_EMAIL: validation@example.invalid
+      VERCEL_TOKEN: validation-only-token
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Compose structure
+        run: |
+          docker compose -f easypanel-compose.yml config --quiet
+          docker compose --profile netfilter -f easypanel-compose.yml config --quiet
+      - name: Build the two local images
+        run: |
+          docker build -t mailcow-init-check -f easypanel/Dockerfile .
+          docker build -t mailcow-acme-check data/Dockerfiles/acme
+      - name: Verify persistent seed and published ports
+        run: |
+          mkdir -p "$MAILCOW_DATA_PATH"
+          docker run --rm -e MAILCOW_HOSTNAME -v "$MAILCOW_DATA_PATH:/mailcow-data" mailcow-init-check
+          docker run --rm -e MAILCOW_HOSTNAME -v "$MAILCOW_DATA_PATH:/mailcow-data" mailcow-init-check
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+          config=json.loads(subprocess.check_output(['docker','compose','-f','easypanel-compose.yml','config','--format','json']))
+          services=config['services']
+          ports=sorted(str(port['published']) for service in services.values() for port in service.get('ports',[]))
+          assert ports == ['25','465','587','993'], ports
+          assert 'netfilter-mailcow' not in services
+          assert config['networks']['mailcow-network']['ipam']['config'][0]['subnet'] == '172.30.50.0/24'
+          for name, service in services.items():
+              for mount in service.get('volumes',[]):
+                  if mount['type'] == 'bind' and mount['source'].startswith(os.environ['MAILCOW_DATA_PATH']):
+                      assert pathlib.Path(mount['source']).exists(), (name, mount['source'])
+          assert pathlib.Path(os.environ['MAILCOW_DATA_PATH'],'assets/ssl/key.pem').stat().st_mode & 0o777 == 0o600
+          PY

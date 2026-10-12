@@ -1,35 +1,56 @@
-# Mailcow en EasyPanel — Contabo / TiendaYa (BORRADOR NO DESPLEGABLE)
- 
-**Estado:** documentación preliminar. NO pulsar «Implementar» con el Compose oficial todavía.
+# Mailcow en EasyPanel / Contabo
 
-## Infraestructura ya verificada
-- Ubuntu 24.04, Docker 28.3.2, Compose 2.38.2.
-- 23 GiB RAM, 2 GiB swap y espacio disponible.
-- EasyPanel/Traefik ocupa 80 y 443.
-- Puertos de correo 25, 465, 587 y 993 aparecen libres en escucha local; la salida TCP 25 hacia Gmail funciona.
-- Red Docker Appwrite 172.22.0.0/16: choca con red predeterminada de Mailcow (172.22.1.0/24).
-- Red propuesta 172.30.50.0/24, no presente en rutas recopiladas.
-- Hostname deseado: notificaciones.ya.com.bo.
+Esta rama prepara un **servicio Compose desde Git** para `notificaciones.ya.com.bo`. No ejecuta despliegues ni cambia el VPS. EasyPanel debe usar `easypanel-compose.yml`, no el Compose oficial. La primera puesta en marcha y la renovación ACME requieren comprobación en el servidor.
 
-## Bloqueos reales del despliegue Git en EasyPanel
-1. El `docker-compose.yml` depende de `mailcow.conf` (en la instalación oficial, `.env` enlaza a ese archivo). EasyPanel puede producir un .env, pero ello **no equivale** a ejecutar `generate_config.sh`.
-2. `generate_config.sh` prepara certificados temporales iniciales y otros archivos. No es seguro confiar en que Git / EasyPanel ejecutará scripts interactivos.
-3. Numerosos bind mounts `./data/...` requieren árbol de archivos persistente, idéntico al del repositorio. Comprobar qué ruta Git monta EasyPanel y qué sobrevive a redeploy.
-4. `netfilter-mailcow` usa `privileged: true` y `network_mode: host`, por lo que hay que revisar su efecto en reglas firewall del VPS compartido.
-5. Los puertos 80/443 están ocupados. Traefik en EasyPanel **no alcanza 127.0.0.1 de host por defecto**; requiere red Docker compartida, un proxy adecuado o publicación restringida de puertos.
-6. Los certificados HTTPS web emitidos por Traefik no se pasan automáticamente a Postfix y Dovecot. Planificar ACME DNS-01 o sincronización de certificados.
-7. Hay que configurar PTR/rDNS en Contabo, DNS A, SPF, DKIM, DMARC y política de salida; validar puerto 25 entrante de Internet.
-8. El servicio `ofelia-mailcow` espera `COMPOSE_PROJECT_NAME` consistente con el nombre real del proyecto Compose.
+## Diseño
 
-## Configuración de referencia
-Usar `easypanel.env.example` para las variables de *referencia*. Crear contraseñas diferentes y aleatorias fuera de Git, en EasyPanel, nunca copiar los marcadores a producción.
+- EasyPanel/Traefik conserva los puertos 80 y 443. En **Dominios**, dirigir `notificaciones.ya.com.bo` por HTTPS a `nginx-mailcow`, puerto interno `8080`, protocolo HTTP. EasyPanel emite el certificado web.
+- Mailcow usa ACME DNS-01 con Vercel para el certificado compartido por Postfix, Dovecot y Nginx. `mailcow-init` genera un certificado temporal único en el primer arranque. Este certificado no debe considerarse válido para clientes hasta que ACME termine.
+- Solo se publican 25, 465, 587 y 993 del host. MySQL, Redis, Dovecot admin y la web no publican puertos de host. Si se necesitan 143, 110, 995 o 4190, habilitarlos después de verificar que estén libres.
+- La red Compose usa `172.30.50.0/24` y el puente `br-mailcow`. Revisar ambos contra las redes y rutas reales antes del primer despliegue.
+- Los datos de configuración, web y certificados se guardan en el bind mount absoluto `MAILCOW_DATA_PATH` (por defecto `/opt/mailcow-easypanel-data`). Los mensajes, índices y bases de datos usan los volúmenes nombrados en Compose. Mantener fijo el nombre del proyecto Compose para conservarlos.
+- `netfilter-mailcow` pertenece al perfil opcional `netfilter`; no arranca por defecto. Véase la sección de acceso a Docker y firewall.
 
-## Próxima validación
-- Confirmar proveedor DNS de `ya.com.bo` y permisos para TXT DNS-01.
-- Confirmar comportamiento de Git/Compose de la versión actual de EasyPanel: ruta de checkout, persistencia y soporte para override.
-- Preparar bootstrap reproducible de certificados y archivos antes de redactar Compose definitivo.
-- Evaluar separar el servidor de correo en un VPS dedicado si se utiliza para clientes externos, por disponibilidad y reputación.
+## Preparación en EasyPanel
 
-Referencias: [Mailcow documentación](https://docs.mailcow.email/) y [Compose oficial](./docker-compose.yml).
+1. Confirmar en el VPS que la red `172.30.50.0/24`, el puente `br-mailcow` y los puertos TCP 25, 465, 587 y 993 estén libres. Comprobar también entrada TCP 25 desde Internet, salida SMTP, espacio, hora y copias de seguridad. Esto no se puede deducir de `docker compose config`.
+2. Crear **Proyecto > Nuevo servicio > Compose > Git**. Repositorio: `https://github.com/daniel199180/mailcow-dockerized.git`; rama: `easypanel-contabo`; Build Path: `/`; archivo: `easypanel-compose.yml`.
+3. En **Entorno**, activar **Create .env file** y definir las variables de `easypanel.env.example`, sustituyendo todos los marcadores por secretos distintos y aleatorios. El repo no contiene `.env`; el panel debe escribirlo para que Compose interpole las variables. No registrar contraseñas ni el token en Git, logs, capturas o texto de un PR.
+4. Mantener `COMPOSE_PROJECT_NAME=mailtiendaya` tanto en el entorno como en el proyecto real de Compose. Verificar en la configuración generada que el proyecto se llama `mailtiendaya`; Mailcow usa ese nombre para localizar sus contenedores durante la renovación de certificados y para las tareas de Ofelia. Si EasyPanel impone otro nombre, usar ese nombre real en `COMPOSE_PROJECT_NAME` antes de desplegar.
+5. Usar `MAILCOW_DATA_PATH=/opt/mailcow-easypanel-data` o elegir otra ruta absoluta y persistente. El contenedor `mailcow-init` copia solo archivos ausentes desde la revisión Git y nunca reemplaza archivos existentes. No cambiar esta ruta ni el nombre Compose sin plan de migración de datos.
+6. En **Dominios**, agregar `notificaciones.ya.com.bo` con TLS de EasyPanel, servicio interno `nginx-mailcow`, puerto `8080`, protocolo HTTP. No crear un segundo router Traefik por etiquetas Compose ni publicar 80/443 desde Mailcow.
+7. Solo después de revisar la configuración y los avisos de compatibilidad de EasyPanel, usar **Deploy**. Esta guía no autoriza ni ejecuta ese paso.
 
-**No se ha realizado ningún despliegue ni se ha modificado Contabo con este documento.**
+## Variables imprescindibles
+
+`MAILCOW_HOSTNAME`, `TZ`, `DBNAME`, `DBUSER`, `DBPASS`, `DBROOT`, `REDISPASS`, `SOGO_URL_ENCRYPTION_KEY`, `ACME_ACCOUNT_EMAIL`, `VERCEL_TOKEN` y `COMPOSE_PROJECT_NAME` deben tener valores reales. Generar contraseñas de al menos 24 caracteres aleatorios; usar valores diferentes. `VERCEL_TOKEN` debe poder editar TXT de la zona DNS de `ya.com.bo`. El token entra solo a `acme-mailcow`, no al inicializador. El cliente acme.sh puede guardar credenciales en el estado ACME persistente: proteger y cifrar sus copias de seguridad.
+
+`ACME_DNS_CHALLENGE=y`, `ACME_DNS_PROVIDER=dns_vercel`, `ONLY_MAILCOW_HOSTNAME=y` y `AUTODISCOVER_SAN=n` están fijados en este Compose. No incluir otros SAN hasta comprobar que Vercel controla sus zonas. La configuración de DNS está en [EASYPANEL-VERCEL-DNS.md](EASYPANEL-VERCEL-DNS.md).
+
+## Persistencia y actualizaciones
+
+Respaldar **juntos** `/opt/mailcow-easypanel-data` (o el bind configurado) y todos los volúmenes nombrados, en particular `mysql-vol-1`, `vmail-vol-1`, `vmail-index-vol-1`, `crypt-vol-1`, `redis-vol-1` y `postfix-vol-1`. Incluir permisos y llaves de `assets/ssl`; comprobar una restauración fuera de producción. No usar `down -v` ni borrar el servicio sin una copia verificada.
+
+El inicializador conserva cambios y secretos existentes, pero **no actualiza archivos ya copiados** en `web`, `conf`, `hooks` o `assets`. Antes de actualizar Mailcow o sus imágenes, comparar esos archivos con la nueva revisión y aplicar la migración de la versión en una ventana controlada. No habilitar actualizaciones automáticas de imágenes para este stack.
+
+## Firewall y acceso a Docker
+
+El perfil `netfilter` está apagado porque su contenedor usa `privileged: true`, red de host y modifica cadenas `INPUT`/`FORWARD` de iptables/nftables del VPS compartido. Activarlo mediante `COMPOSE_PROFILES=netfilter` solo tras revisar las reglas del host y probar que no cortará tráfico de EasyPanel, Appwrite u otros servicios. El valor `DISABLE_NETFILTER_ISOLATION_RULE=y` evita su regla de aislamiento específica, pero **no** impide las reglas de bloqueo de IP. Sin este perfil, las prohibiciones de IP de Mailcow no se aplican en el firewall del host; usar controles externos adecuados.
+
+`dockerapi-mailcow` y `ofelia-mailcow` montan `/var/run/docker.sock:ro`. El `:ro` protege el archivo de socket, pero **no convierte la API Docker en solo lectura**: dockerapi puede iniciar, detener y reiniciar contenedores y Ofelia ejecuta tareas mediante la API. El código de dockerapi acepta IDs/nombres de contenedor; no está limitado al proyecto Compose. Mantener estos servicios sin puertos publicados, restringir acceso al panel y considerar un VPS dedicado si se necesita aislamiento fuerte frente a otros proyectos.
+
+## Comprobación posterior a un despliegue autorizado
+
+Revisar en EasyPanel que `mailcow-init` termine con código 0 y que Unbound, MariaDB, Redis, Postfix, Dovecot, Nginx y ACME estén sanos. Comprobar que `acme-mailcow` obtuvo un certificado válido para `notificaciones.ya.com.bo` y que Postfix y Dovecot lo sirven en 465/587 y 993. Confirmar HTTPS web a través de Traefik y probar un envío autenticado y la recepción de correo en un dominio configurado. Verificar A, PTR/rDNS, MX (si se recibirá), SPF, DKIM y DMARC para el dominio remitente real. Cambiar inmediatamente la contraseña inicial de administrador de Mailcow.
+
+## Validación local sin desplegar
+
+Con Docker Compose 2.38.2 y un archivo de entorno **local no versionado** con valores ficticios:
+
+```sh
+docker compose --env-file /ruta/segura/mailcow-check.env -f easypanel-compose.yml config --quiet
+```
+
+Esta validación comprueba interpolación y estructura, pero no construye imágenes, no comprueba credenciales Vercel ni demuestra conectividad o compatibilidad con el VPS. EasyPanel también debe revisar sus avisos de Compose antes de cualquier despliegue.
+
+Referencias: [servicios Compose de EasyPanel](https://easypanel.io/docs/services/compose), [reverse proxy de Mailcow](https://docs.mailcow.email/post_installation/reverse-proxy/r_p/), [DNS-01 de Mailcow](https://docs.mailcow.email/post_installation/firststeps-ssl-dns/).

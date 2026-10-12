@@ -23,7 +23,7 @@ Esta rama prepara un **servicio Compose desde Git** para `notificaciones.ya.com.
 
 ## Variables imprescindibles
 
-`MAILCOW_HOSTNAME`, `TZ`, `DBNAME`, `DBUSER`, `DBPASS`, `DBROOT`, `REDISPASS`, `SOGO_URL_ENCRYPTION_KEY`, `ACME_ACCOUNT_EMAIL`, `VERCEL_TOKEN` y `COMPOSE_PROJECT_NAME` deben tener valores reales. Generar contraseñas de al menos 24 caracteres aleatorios; usar valores diferentes. `VERCEL_TOKEN` debe poder editar TXT de la zona DNS de `ya.com.bo`. El token entra solo a `acme-mailcow`, no al inicializador. El cliente acme.sh puede guardar credenciales en el estado ACME persistente: proteger y cifrar sus copias de seguridad.
+`MAILCOW_HOSTNAME`, `TZ`, `DBNAME`, `DBUSER`, `DBPASS`, `DBROOT`, `REDISPASS`, `SOGO_URL_ENCRYPTION_KEY`, `ACME_ACCOUNT_EMAIL`, `VERCEL_TOKEN`, `VERCEL_TEAM_ID` y `COMPOSE_PROJECT_NAME` deben tener valores reales. Generar contraseñas de al menos 24 caracteres aleatorios; usar valores diferentes. `VERCEL_TOKEN` debe poder editar TXT de la zona DNS de `ya.com.bo` dentro del Team indicado por `VERCEL_TEAM_ID` (formato `team_` seguido de caracteres alfanuméricos). El token y el Team ID entran solo a `acme-mailcow`, no al inicializador. El cliente acme.sh puede guardar el token en el estado ACME persistente: proteger y cifrar sus copias de seguridad.
 
 `ACME_DNS_CHALLENGE=y`, `ACME_DNS_PROVIDER=dns_vercel`, `ONLY_MAILCOW_HOSTNAME=y` y `AUTODISCOVER_SAN=n` están fijados en este Compose. No incluir otros SAN hasta comprobar que Vercel controla sus zonas. La configuración de DNS está en [EASYPANEL-VERCEL-DNS.md](EASYPANEL-VERCEL-DNS.md).
 

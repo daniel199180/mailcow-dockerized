@@ -33,7 +33,9 @@ COPY obtain-certificate-dns.sh /srv/obtain-certificate-dns.sh
 COPY load-dns-config.sh /srv/load-dns-config.sh
 COPY reload-configurations.sh /srv/reload-configurations.sh
 COPY expand6.sh /srv/expand6.sh
+COPY dns_vercel.sh /opt/acme.sh/dnsapi/dns_vercel.sh
 
-RUN chmod +x /srv/*.sh
+RUN chmod +x /srv/*.sh \
+  && grep -q 'Mailcow EasyPanel scoped Vercel DNS-01 provider' /opt/acme.sh/dnsapi/dns_vercel.sh
 
 CMD ["/sbin/tini", "-g", "--", "/srv/acme.sh"]

@@ -26,9 +26,12 @@ Mailcow soporta DNS-01 mediante acme.sh, y acme.sh dispone del plugin `dns_verce
 MAILCOW_HOSTNAME=notificaciones.ya.com.bo
 ACME_ACCOUNT_EMAIL=REEMPLAZAR_CON_CORREO_DE_CONTACTO
 VERCEL_TOKEN=REEMPLAZAR_TOKEN_PRIVADO
+VERCEL_TEAM_ID=REEMPLAZAR_TEAM_ID_DEL_TEAM
 ```
 
-El token se entrega solo al contenedor `acme-mailcow` como variable de entorno de EasyPanel. **No** subirlo a Git ni escribirlo en un archivo público. Confirmar que la cuenta y alcance del token permiten crear y eliminar TXT en `ya.com.bo`. acme.sh puede persistir credenciales en el volumen de certificados; proteger su copia de seguridad. Si el dominio pertenece a un Team de Vercel, comprobar una emisión real antes de confiar en la renovación automática.
+El token y el Team ID se entregan solo al contenedor `acme-mailcow` como variables de entorno de EasyPanel. **No** subir valores reales a Git ni escribirlos en un archivo público. `VERCEL_TEAM_ID` debe ser el identificador del Team propietario de `ya.com.bo`, con formato `team_` seguido de caracteres alfanuméricos. Confirmar que el token tiene permiso para crear y eliminar TXT en esa zona. acme.sh puede persistir el token en el volumen de certificados; proteger su copia de seguridad.
+
+La imagen ACME incorpora una adaptación del proveedor `dns_vercel` de acme.sh 3.1.6. Todas sus solicitudes a Vercel incluyen `teamId`. Solo acepta el desafío `_acme-challenge.notificaciones.ya.com.bo`; crea un TXT en ese nombre y elimina un registro únicamente si el identificador, nombre, tipo y valor coinciden de forma única. Una respuesta incompleta, paginación inválida o coincidencias ambiguas impiden el borrado. No modifica los registros del dominio raíz, el comodín ni las tiendas. Las pruebas de GitHub Actions usan respuestas simuladas; la emisión y renovación reales deben comprobarse en EasyPanel tras un despliegue autorizado.
 
 El inicializador del Compose de EasyPanel prepara los archivos y un certificado temporal. La emisión real debe verificarse después de un despliegue autorizado. No desplegar el Compose oficial de Mailcow en este VPS porque publicaría 80/443.
 

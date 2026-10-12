@@ -1,0 +1,11 @@
+.git
+.env
+mailcow.conf
+mailcow.conf_backup
+data/assets/ssl
+data/conf/acme/dns-01.conf
+data/conf/borgmatic
+data/conf/dovecot/dovecot-master.passwd
+data/conf/sogo/cron.creds
+data/conf/sogo/sieve.creds
+data/web/inc/vars.local.inc.php

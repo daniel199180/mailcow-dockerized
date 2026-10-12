@@ -1,0 +1,86 @@
+name: Validate EasyPanel Compose
+
+on:
+  push:
+    branches: [easypanel-contabo]
+  pull_request:
+    branches: [master]
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    env:
+      COMPOSE_PROJECT_NAME: mailtiendaya
+      MAILCOW_HOSTNAME: notificaciones.ya.com.bo
+      MAILCOW_DATA_PATH: /tmp/mailcow-easypanel-check
+      TZ: America/La_Paz
+      DBNAME: mailcow
+      DBUSER: mailcow
+      DBPASS: validation-only-dbpass
+      DBROOT: validation-only-dbroot
+      REDISPASS: validation-only-redispass
+      SOGO_URL_ENCRYPTION_KEY: validation-only-sogo
+      ACME_ACCOUNT_EMAIL: validation@example.invalid
+      VERCEL_TOKEN: validation-only-token
+      VERCEL_TEAM_ID: team_Example12345678
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Compose structure
+        run: |
+          docker compose -f easypanel-compose.yml config --quiet
+          docker compose --profile netfilter -f easypanel-compose.yml config --quiet
+      - name: Build the two local images
+        run: |
+          docker build -t mailcow-init-check -f easypanel/Dockerfile .
+          docker build -t mailcow-acme-check data/Dockerfiles/acme
+      - name: Verify scoped Vercel DNS provider with mocked API
+        run: |
+          docker run --rm --entrypoint sh mailcow-acme-check -c 'grep -q "Mailcow EasyPanel scoped Vercel DNS-01 provider" /opt/acme.sh/dnsapi/dns_vercel.sh'
+          test_container=$(docker create --entrypoint sh mailcow-acme-check /tmp/test-dns-vercel.sh)
+          trap 'docker rm -f "$test_container" >/dev/null' EXIT
+          docker cp data/Dockerfiles/acme/tests/test-dns-vercel.sh "$test_container:/tmp/test-dns-vercel.sh"
+          docker start -a "$test_container"
+          test "$(docker inspect -f '{{.State.ExitCode}}' "$test_container")" = 0
+      - name: Verify Mailcow PHP-FPM account
+        run: |
+          test "$(docker run --rm --entrypoint id ghcr.io/mailcow/phpfpm:8.2.29-3 -u www-data)" = 82
+          test "$(docker run --rm --entrypoint id ghcr.io/mailcow/phpfpm:8.2.29-3 -g www-data)" = 82
+      - name: Verify persistent seed and published ports
+        run: |
+          mkdir -p "$MAILCOW_DATA_PATH"
+          docker run --rm -e MAILCOW_HOSTNAME -v "$MAILCOW_DATA_PATH:/mailcow-data" mailcow-init-check
+          test "$(stat -c '%u:%g' "$MAILCOW_DATA_PATH/web/templates/cache")" = 82:82
+          docker run --rm -v "$MAILCOW_DATA_PATH:/mailcow-data" --entrypoint sh mailcow-init-check -c 'printf "preserve me\n" > /mailcow-data/web/templates/cache/existing.twig; printf "untouched\n" > /mailcow-data/web/templates/unrelated.keep; chown 0:0 /mailcow-data/web/templates/cache /mailcow-data/web/templates/cache/existing.twig /mailcow-data/web/templates/unrelated.keep'
+          docker run --rm -e MAILCOW_HOSTNAME -v "$MAILCOW_DATA_PATH:/mailcow-data" mailcow-init-check
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+          config=json.loads(subprocess.check_output(['docker','compose','-f','easypanel-compose.yml','config','--format','json']))
+          services=config['services']
+          assert services['acme-mailcow']['environment']['VERCEL_TEAM_ID'] == os.environ['VERCEL_TEAM_ID']
+          assert services['acme-mailcow']['environment']['VERCEL_TOKEN'] == os.environ['VERCEL_TOKEN']
+          ports=sorted(str(port['published']) for service in services.values() for port in service.get('ports',[]))
+          assert ports == ['25','465','587','993'], ports
+          assert 'netfilter-mailcow' not in services
+          nginx_networks=services['nginx-mailcow']['networks']
+          assert {'mailcow-network','easypanel'} <= set(nginx_networks), nginx_networks
+          assert config['networks']['easypanel']['external'] is True
+          for name, service in services.items():
+              if name != 'nginx-mailcow':
+                  assert 'easypanel' not in service.get('networks',{}), name
+          assert config['networks']['mailcow-network']['ipam']['config'][0]['subnet'] == '172.30.50.0/24'
+          for name, service in services.items():
+              for mount in service.get('volumes',[]):
+                  if mount['type'] == 'bind' and mount['source'].startswith(os.environ['MAILCOW_DATA_PATH']):
+                      assert pathlib.Path(mount['source']).exists(), (name, mount['source'])
+          twig_cache=pathlib.Path(os.environ['MAILCOW_DATA_PATH'],'web/templates/cache')
+          existing=twig_cache/'existing.twig'
+          assert twig_cache.is_dir()
+          assert (twig_cache.stat().st_uid,twig_cache.stat().st_gid) == (82,82)
+          assert (existing.stat().st_uid,existing.stat().st_gid) == (82,82)
+          assert existing.read_text() == 'preserve me\n'
+          assert twig_cache.stat().st_mode & 0o777 == 0o755
+          unrelated=twig_cache.parent/'unrelated.keep'
+          assert (unrelated.stat().st_uid,unrelated.stat().st_gid) == (0,0)
+          assert unrelated.read_text() == 'untouched\n'
+          assert pathlib.Path(os.environ['MAILCOW_DATA_PATH'],'assets/ssl/key.pem').stat().st_mode & 0o777 == 0o600
+          PY

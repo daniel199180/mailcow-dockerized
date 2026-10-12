@@ -497,6 +497,9 @@ services:
         mailcow-network:
           aliases:
             - nginx
+        easypanel:
+          aliases:
+            - nginx-mailcow
 
     acme-mailcow:
       depends_on:
@@ -701,6 +704,11 @@ services:
             - ofelia
 
 networks:
+  # Existing, attachable Swarm overlay (managed by EasyPanel/Traefik).
+  # Only nginx-mailcow joins it. Do not modify/recreate the EasyPanel network.
+  easypanel:
+    external: true
+    name: easypanel
   mailcow-network:
     driver: bridge
     driver_opts:

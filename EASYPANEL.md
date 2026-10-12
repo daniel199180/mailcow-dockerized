@@ -9,14 +9,14 @@ Esta rama prepara un **servicio Compose desde Git** para `notificaciones.ya.com.
 - Solo se publican 25, 465, 587 y 993 del host. MySQL, Redis, Dovecot admin y la web no publican puertos de host. Si se necesitan 143, 110, 995 o 4190, habilitarlos después de verificar que estén libres.
 - La red Compose usa `172.30.50.0/24` y el puente `br-mailcow`. Revisar ambos contra las redes y rutas reales antes del primer despliegue.
 - Los datos de configuración, web y certificados se guardan en el bind mount absoluto `MAILCOW_DATA_PATH` (por defecto `/opt/mailcow-easypanel-data`). Los mensajes, índices y bases de datos usan los volúmenes nombrados en Compose. Mantener fijo el nombre del proyecto Compose para conservarlos.
-- `netfilter-mailcow` pertenece al perfil opcional `netfilter`; no arranca por defecto. Véase la sección de acceso a Docker y firewall.
+- `netfilter-mailcow` se eliminó por completo del Compose de EasyPanel: no puede arrancar desde esta variante. Véase la sección de acceso a Docker y firewall.
 
 ## Preparación en EasyPanel
 
 1. Confirmar en el VPS que la red `172.30.50.0/24`, el puente `br-mailcow` y los puertos TCP 25, 465, 587 y 993 estén libres. Comprobar también entrada TCP 25 desde Internet, salida SMTP, espacio, hora y copias de seguridad. Esto no se puede deducir de `docker compose config`.
 2. Crear **Proyecto > Nuevo servicio > Compose > Git**. Repositorio: `https://github.com/daniel199180/mailcow-dockerized.git`; rama: `easypanel-contabo`; Build Path: `/`; archivo: `easypanel-compose.yml`.
 3. En **Entorno**, activar **Create .env file** y definir las variables de `easypanel.env.example`, sustituyendo todos los marcadores por secretos distintos y aleatorios. El repo no contiene `.env`; el panel debe escribirlo para que Compose interpole las variables. No registrar contraseñas ni el token en Git, logs, capturas o texto de un PR.
-4. Mantener `COMPOSE_PROJECT_NAME=mailtiendaya` tanto en el entorno como en el proyecto real de Compose. Verificar en la configuración generada que el proyecto se llama `mailtiendaya`; Mailcow usa ese nombre para localizar sus contenedores durante la renovación de certificados y para las tareas de Ofelia. Si EasyPanel impone otro nombre, usar ese nombre real en `COMPOSE_PROJECT_NAME` antes de desplegar.
+4. Para la instalación existente, definir `COMPOSE_PROJECT_NAME=servicios_mailtiendaya` en el entorno, pues es el identificador real observado en las etiquetas y los volúmenes. Verificar en la configuración generada que el proyecto se llama `mailtiendaya`; Mailcow usa ese nombre para localizar sus contenedores durante la renovación de certificados y para las tareas de Ofelia. Si EasyPanel impone otro nombre, usar ese nombre real en `COMPOSE_PROJECT_NAME` antes de desplegar.
 5. Usar `MAILCOW_DATA_PATH=/opt/mailcow-easypanel-data` o elegir otra ruta absoluta y persistente. El contenedor `mailcow-init` copia solo archivos ausentes desde la revisión Git y nunca reemplaza archivos existentes. No cambiar esta ruta ni el nombre Compose sin plan de migración de datos.
 6. En **Dominios**, agregar `notificaciones.ya.com.bo` con TLS de EasyPanel, servicio interno `nginx-mailcow`, puerto `8080`, protocolo HTTP. No crear un segundo router Traefik por etiquetas Compose ni publicar 80/443 desde Mailcow.
 7. Solo después de revisar la configuración y los avisos de compatibilidad de EasyPanel, usar **Deploy**. Esta guía no autoriza ni ejecuta ese paso.
@@ -35,7 +35,7 @@ El inicializador conserva cambios y secretos existentes, pero **no actualiza arc
 
 ## Firewall y acceso a Docker
 
-El perfil `netfilter` está apagado porque su contenedor usa `privileged: true`, red de host y modifica cadenas `INPUT`/`FORWARD` de iptables/nftables del VPS compartido. Activarlo mediante `COMPOSE_PROFILES=netfilter` solo tras revisar las reglas del host y probar que no cortará tráfico de EasyPanel, Appwrite u otros servicios. El valor `DISABLE_NETFILTER_ISOLATION_RULE=y` evita su regla de aislamiento específica, pero **no** impide las reglas de bloqueo de IP. Sin este perfil, las prohibiciones de IP de Mailcow no se aplican en el firewall del host; usar controles externos adecuados.
+`netfilter-mailcow` está fuera de este Compose para evitar cambios de firewall del VPS compartido. No activar ni reintroducirlo sin auditoría específica. El valor `DISABLE_NETFILTER_ISOLATION_RULE=y` evita su regla de aislamiento específica, pero **no** impide las reglas de bloqueo de IP. Sin Netfilter, las prohibiciones de IP de Mailcow no se aplican en el firewall del host; usar controles externos adecuados.
 
 `dockerapi-mailcow` y `ofelia-mailcow` montan `/var/run/docker.sock:ro`. El `:ro` protege el archivo de socket, pero **no convierte la API Docker en solo lectura**: dockerapi puede iniciar, detener y reiniciar contenedores y Ofelia ejecuta tareas mediante la API. El código de dockerapi acepta IDs/nombres de contenedor; no está limitado al proyecto Compose. Mantener estos servicios sin puertos publicados, restringir acceso al panel y considerar un VPS dedicado si se necesita aislamiento fuerte frente a otros proyectos.
 

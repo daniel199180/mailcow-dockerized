@@ -23,6 +23,13 @@ rsync -a --ignore-existing "$seed_dir/" "$data_dir/"
 mkdir -p "$data_dir/web/.well-known/acme-challenge"
 chmod 0755 "$data_dir/web/.well-known" "$data_dir/web/.well-known/acme-challenge"
 
+# Twig compiles templates at runtime; PHP-FPM runs as www-data.
+# The seeded Git tree is owned by root, so grant ownership only to Twig cache.
+twig_cache="$data_dir/web/templates/cache"
+mkdir -p "$twig_cache"
+chown -R "$(id -u www-data):$(id -g www-data)" "$twig_cache"
+chmod 0755 "$twig_cache"
+
 ssl_dir=$data_dir/assets/ssl
 mkdir -p "$ssl_dir"
 chmod 0755 "$ssl_dir"

@@ -21,9 +21,11 @@ data_dir=${MAILCOW_DATA_DIR:-/mailcow-data}
 mkdir -p "$data_dir"
 rsync -a --ignore-existing "$seed_dir/" "$data_dir/"
 mkdir -p "$data_dir/web/.well-known/acme-challenge"
+chmod 0755 "$data_dir/web/.well-known" "$data_dir/web/.well-known/acme-challenge"
 
 ssl_dir=$data_dir/assets/ssl
 mkdir -p "$ssl_dir"
+chmod 0755 "$ssl_dir"
 if [ ! -e "$ssl_dir/cert.pem" ] && [ ! -e "$ssl_dir/key.pem" ]; then
   openssl req -x509 -newkey rsa:2048 -nodes -days 7 \
     -subj "/CN=$MAILCOW_HOSTNAME" \
